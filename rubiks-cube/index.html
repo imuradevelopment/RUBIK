@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta
+    name="viewport"
+    content="width=device-width, initial-scale=1.0"
+  />
+  <title>3D Rubik's Cube</title>
+
+  <!-- three.js, gsap -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+  <script src="https://unpkg.com/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.7.1/gsap.min.js"></script>
+
+  <!-- ★ rubiks-cube-solver CDNの追加 ★ -->
+  <!-- <script src="https://cdn.jsdelivr.net/npm/rubiks-cube-solver@1.2.0/lib/index.common.min.js"></script> -->
+  <!-- ここまで -->
+
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <!-- ヘッダー（固定） -->
+  <header class="main-header">
+    <div class="header-left">
+      <button id="toggleMenu" class="toggle-button">&#9776;</button>
+      <h1>3D Rubik's Cube</h1>
+    </div>
+    <div class="header-right">
+      <!-- ★ ここをプルダウン＋解法ボタンに変更 ★ -->
+      <select id="solveMethod">
+        <option value="o1">独自LBL(o1)</option>
+        <option value="rubiks">rubiks-cube-solver</option>
+      </select>
+      <button id="solveButton">解法を表示</button>
+      <!-- ★ ここまで修正 ★ -->
+
+      <button id="scrambleButton">スクランブル</button>
+      <button id="resetButton">リセット</button>
+    </div>
+  </header>
+
+  <!-- サイドバー（固定・スクロール可） -->
+  <nav class="control-panel closed" id="controlPanel">
+    <div class="panel-content">
+      <div class="controls">
+        <div class="control-group">
+          <h3>基本操作</h3>
+          <button data-move="U">U (上面 時計回り)</button>
+          <button data-move="U'">U' (上面 反時計回り)</button>
+          <button data-move="D">D (下面 時計回り)</button>
+          <button data-move="D'">D' (下面 反時計回り)</button>
+          <button data-move="R">R (右面 時計回り)</button>
+          <button data-move="R'">R' (右面 反時計回り)</button>
+          <button data-move="L">L (左面 時計回り)</button>
+          <button data-move="L'">L' (左面 反時計回り)</button>
+          <button data-move="F">F (前面 時計回り)</button>
+          <button data-move="F'">F' (前面 反時計回り)</button>
+          <button data-move="B">B (後面 時計回り)</button>
+          <button data-move="B'">B' (後面 反時計回り)</button>
+        </div>
+        <div class="control-group">
+          <h3>中層操作</h3>
+          <button data-move="M">M (中央縦 上向き)</button>
+          <button data-move="M'">M' (中央縦 下向き)</button>
+          <button data-move="E">E (中央横 時計回り)</button>
+          <button data-move="E'">E' (中央横 反時計回り)</button>
+          <button data-move="S">S (中央前後 時計回り)</button>
+          <button data-move="S'">S' (中央前後 反時計回り)</button>
+        </div>
+        <div class="control-group">
+          <h3>キューブ全体の回転</h3>
+          <button data-move="x">x (右方向に全体回転)</button>
+          <button data-move="x'">x' (左方向に全体回転)</button>
+          <button data-move="y">y (上方向に全体回転)</button>
+          <button data-move="y'">y' (下方向に全体回転)</button>
+          <button data-move="z">z (前方向に全体回転)</button>
+          <button data-move="z'">z' (後方向に全体回転)</button>
+        </div>
+      </div>
+    </div>
+  </nav>
+
+  <!-- メイン表示領域 -->
+  <div class="cube-view">
+    <canvas id="cubeCanvas"></canvas>
+  </div>
+
+  <script src="rubiks-cube-solver.js"></script>
+  <!-- メインスクリプト -->
+  <script src="app.js"></script>
+</body>
+</html>
