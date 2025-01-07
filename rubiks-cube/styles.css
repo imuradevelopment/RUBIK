@@ -156,7 +156,9 @@
     bottom: 0;
     overflow: hidden;
     background: #000;
+    transition: left 0.3s ease; /* スムーズな移動 */
   }
+  
   
   /* canvas を全域使う */
   canvas {
@@ -164,3 +166,39 @@
     height: 100%;
     display: block;
   }
+
+  /* スマホ用スタイル */
+@media screen and (max-width: 768px) {
+  /* サイドバーを上部に移動 */
+  .control-panel {
+    position: fixed;
+    top: 60px;
+    left: 0;
+    width: 100%;
+    height: auto;
+    max-height: 40%;
+    overflow-y: auto;
+    border-right: none;
+    border-bottom: 1px solid #333;
+    transform: translateY(-100%);
+    transition: transform 0.3s ease;
+  }
+  .control-panel.closed {
+    transform: translateY(0);
+  }
+
+  /* サイドバー開閉ボタンの位置を調整 */
+  .toggle-button {
+    font-size: 18px;
+  }
+
+  /* キューブ表示を下に配置 */
+  .cube-view {
+    position: absolute;
+    top: calc(60px + 40%); /* ヘッダーとサイドバー分 */
+    left: 0;
+    right: 0;
+    bottom: 0;
+    overflow: hidden;
+  }
+}

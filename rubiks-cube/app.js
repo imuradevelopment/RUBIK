@@ -1,3 +1,5 @@
+// app.js
+
 // グローバル変数
 let scene, camera, renderer, controls;
 let cubePieces = [];
@@ -172,12 +174,30 @@ function animate() {
  */
 function updateRendererSize() {
   const cubeView = document.querySelector(".cube-view");
+  const controlPanel = document.getElementById("controlPanel");
+
+  // スマホ用レイアウトを判定
+  const isMobile = window.innerWidth <= 768;
+
+  if (isMobile) {
+    // スマホ: サイドバーが閉じている場合は上部に隠す
+    const sidebarHeight = controlPanel.classList.contains("closed") ? 0 : controlPanel.offsetHeight;
+    cubeView.style.top = `${60 + sidebarHeight}px`; // ヘッダー＋サイドバー高さ
+    cubeView.style.left = "0";
+  } else {
+    // デスクトップ: サイドバーが左側に表示
+    const sidebarWidth = controlPanel.classList.contains("closed") ? 0 : 300;
+    cubeView.style.left = `${sidebarWidth}px`;
+    cubeView.style.top = "60px"; // ヘッダー下
+  }
+
   const w = cubeView.clientWidth;
   const h = cubeView.clientHeight;
   camera.aspect = w / h;
   camera.updateProjectionMatrix();
   renderer.setSize(w, h);
 }
+
 
 /**
  * リセット
@@ -188,15 +208,14 @@ function resetCube() {
   createCube();
 }
 
-/**
- * スクランブル (20手ランダム)
- */
+
+
 function scrambleCube() {
   if (isAnimating) return;
   const allMoves = [
-    "U", "U'", "D", "D'", "R", "R'", "L", "L'",
-    "F", "F'", "B", "B'", "M", "M'", "E", "E'",
-    "S", "S'", "x", "x'", "y", "y'", "z", "z'",
+    "U", "Uprime", "D", "Dprime", "R", "Rprime", "L", "Lprime",
+    "F", "Fprime", "B", "Bprime", "M", "Mprime", "E", "Eprime",
+    "S", "Sprime", "x", "xprime", "y", "yprime", "z", "zprime",
   ];
   const length = 20;
   const seq = [];
@@ -209,15 +228,208 @@ function scrambleCube() {
     if (idx >= seq.length) return;
     executeMove(seq[idx]);
     idx++;
-    setTimeout(nextMove, 300);
+    setTimeout(nextMove, 1000);
   }
   nextMove();
 }
 
+
+
+/* -------------------------------------------------------------------
+   ★ 修正： BFSで 「front=緑, up=白, right=赤」 に持っていく機能
+   ------------------------------------------------------------------- */
+
+/**
+ * 現在のセンターの配列 [fColor, rColor, uColor, dColor, lColor, bColor] を取得
+ */
+function getCenterOrientation() {
+  // f= (0,0,1), r= (1,0,0), u= (0,1,0), d= (0,-1,0), l= (-1,0,0), b= (0,0,-1)
+  // それぞれの色を取得して配列に
+  let result = ["","","","","",""]; // [f,r,u,d,l,b]
+  const centerData = getCubeState().centers; // center data from user function
+
+  // centerData: each => {pos:[x,y,z], colors:[{face, colorName}]}
+  // pos( 0, 0, 1) => front
+  // pos( 1, 0, 0) => right
+  // pos( 0, 1, 0) => up
+  // pos( 0,-1, 0) => down
+  // pos(-1, 0, 0) => left
+  // pos( 0, 0,-1) => back
+  // we only store one color because each center has exactly 1 color
+
+  for (let c of centerData) {
+    let [x,y,z] = c.pos;
+    let colName = c.colors[0]?.colorName || "unknown";
+    if (x===0 && y===0 && z===1)  result[0] = colName; // front
+    if (x===1 && y===0 && z===0)  result[1] = colName; // right
+    if (x===0 && y===1 && z===0)  result[2] = colName; // up
+    if (x===0 && y===-1&& z===0)  result[3] = colName; // down
+    if (x===-1&&y===0 && z===0)  result[4] = colName; // left
+    if (x===0 && y===0 && z===-1) result[5] = colName; // back
+  }
+  return result;
+}
+
+/**
+ * BFSで、front=green, up=white, right=red になるまで最大深さ4で探索
+ */
+async function autoOrientCubeForSolver() {
+  // 初期状態でチェック
+  let startOrient = getCenterOrientation();
+  if (checkOrientationGoal(startOrient)) {
+    return; // もう合ってる
+  }
+
+  // BFSのキュー
+  let queue = [];
+  queue.push({ orient: startOrient, moves: [] });
+
+  // 訪問済みセット
+  let visited = new Set();
+  visited.add( orientationKey(startOrient) );
+
+  // 全体回転の6通り
+  const possibleMoves = [
+    { axis:'x', dir: 1,  notation:'x' },
+    { axis:'x', dir: -1, notation:'xprime' },
+    { axis:'y', dir: 1,  notation:'y' },
+    { axis:'y', dir: -1, notation:'yprime' },
+    { axis:'z', dir: 1,  notation:'z' },
+    { axis:'z', dir: -1, notation:'zprime' },
+  ];
+
+  let maxDepth = 4; // 最大4回の全体回転で試みる
+
+  while(queue.length > 0) {
+    let { orient, moves } = queue.shift();
+
+    // 深さが maxDepth 超えたら打ち切り
+    if (moves.length >= maxDepth) {
+      continue;
+    }
+
+    // 6方向の全体回転を試す
+    for (let pm of possibleMoves) {
+      // ↓ orient をシミュレートして得た新しい配列
+      let newOrient = rotateOrientation(orient, pm.axis, pm.dir);
+      if (checkOrientationGoal(newOrient)) {
+        // 発見！ => moves + pm.notation で物理的に実際の回転を適用する
+        let finalMoves = [...moves, pm.notation];
+        // 回転を実際に再生
+        for (let fm of finalMoves) {
+          await rotateCube( fm[0], fm.includes("prime")? -1 : 1 );
+        }
+        return;
+      }
+      let key = orientationKey(newOrient);
+      if (!visited.has(key)) {
+        visited.add(key);
+        queue.push({ orient: newOrient, moves: [...moves, pm.notation] });
+      }
+    }
+  }
+  // 4手以内でできなかったら諦める
+  console.warn("autoOrientCubeForSolver: cannot fix orientation within 4 moves..");
+}
+
+// [f,r,u,d,l,b] という配列を受け取り、front=green & up=white & right=red か判定
+function checkOrientationGoal(arr) {
+  // arr[0]=f, arr[1]=r, arr[2]=u
+  return (arr[0]==="green" && arr[2]==="white" && arr[1]==="red");
+}
+
+// BFSで使うハッシュキー
+function orientationKey(arr) {
+  return arr.join("|");
+}
+
+/**
+ * center配列 [fColor, rColor, uColor, dColor, lColor, bColor] に対して
+ * "x,y,z" 回転を dir=±1（90度）だけシミュレートする
+ */
+function rotateOrientation(arr, axis, dir) {
+  // arr = [f,r,u,d,l,b]
+  // それぞれ 0:F,1:R,2:U,3:D,4:L,5:B
+  // ここで x回転 => (U->B, B->D, D->F, F->U) みたいな入れ替え
+  // ただし dir=1が "x", dir=-1が "xprime"
+  const newArr = [...arr];
+
+  if (axis==="x") {
+    if (dir===1) {
+      // x: (u->b, b->d, d->f, f->u), r,lはそのまま
+      newArr[2] = arr[5]; // U->B
+      newArr[5] = arr[3]; // B->D
+      newArr[3] = arr[0]; // D->F
+      newArr[0] = arr[2]; // F->U
+      newArr[1] = arr[1]; // R->R
+      newArr[4] = arr[4]; // L->L
+    } else {
+      // xprime
+      newArr[5] = arr[2]; // B<-U
+      newArr[3] = arr[5]; // D<-B
+      newArr[0] = arr[3]; // F<-D
+      newArr[2] = arr[0]; // U<-F
+      newArr[1] = arr[1]; // R->R
+      newArr[4] = arr[4]; // L->L
+    }
+  }
+  else if (axis==="y") {
+    if (dir===1) {
+      // y: (f->r, r->b, b->l, l->f), u,dはそのまま
+      newArr[0] = arr[4]; // F<-L
+      newArr[1] = arr[0]; // R<-F
+      newArr[5] = arr[1]; // B<-R
+      newArr[4] = arr[5]; // L<-B
+      newArr[2] = arr[2]; // U->U
+      newArr[3] = arr[3]; // D->D
+    } else {
+      // yprime
+      newArr[4] = arr[0]; // L<-F
+      newArr[0] = arr[1]; // F<-R
+      newArr[1] = arr[5]; // R<-B
+      newArr[5] = arr[4]; // B<-L
+      newArr[2] = arr[2]; // U->U
+      newArr[3] = arr[3]; // D->D
+    }
+  }
+  else if (axis==="z") {
+    if (dir===1) {
+      // z: (u->l, l->d, d->r, r->u), f,bはそのまま
+      newArr[2] = arr[1]; // U<-R
+      newArr[1] = arr[3]; // R<-D
+      newArr[3] = arr[4]; // D<-L
+      newArr[4] = arr[2]; // L<-U
+      newArr[0] = arr[0]; // F->F
+      newArr[5] = arr[5]; // B->B
+    } else {
+      // zprime
+      newArr[1] = arr[2]; // R<-U
+      newArr[3] = arr[1]; // D<-R
+      newArr[4] = arr[3]; // L<-D
+      newArr[2] = arr[4]; // U<-L
+      newArr[0] = arr[0]; // F->F
+      newArr[5] = arr[5]; // B->B
+    }
+  }
+  return newArr;
+}
+
+/* -------------------------------------------------------------------
+   rubiks-cube-solver を使った解法
+   ------------------------------------------------------------------- */
+
 /**
  * rubiks-cube-solver を使った解法 (Fridrich Method)
+ * - BFSでキューブを "front=緑, up=白, right=赤" に自動調整し
+ * - 54文字をビルドして解法取得
+ * - 取得した手順を順番に実行
  */
 async function solveCubeRubiks() {
+  if (isAnimating) return;
+  
+  // front=緑 & up=白 & right=赤 に自動回転
+  await autoOrientCubeForSolver();
+
   // getCubeState() の結果をもとに文字列(全54文字)を生成
   let cubeStateString = buildCubeStateString();
   console.log("現在のキューブ状態(54文字) =", cubeStateString);
@@ -226,6 +438,7 @@ async function solveCubeRubiks() {
   let solveMoves;
   try {
     solveMoves = window.rubiksCubeSolver(cubeStateString);
+    // solveMoves = window.RubiksCubeSolver.solve(cubeStateString);
   } catch (e) {
     console.error("rubiks-cube-solver の呼び出しでエラー:", e);
     alert("rubiks-cube-solver の解法に失敗しました。");
@@ -236,6 +449,65 @@ async function solveCubeRubiks() {
 
   // 解答手順を順番に実行
   let movesArray = solveMoves.split(/\s+/);
+  
+  // movesArrayの要素内の末尾が数字の場合、末尾の数字分だけ要素を追加
+  movesArray = movesArray.reduce((acc, move) => {
+    // 末尾の数字を抽出
+    const match = move.match(/(\d+)$/);
+    if (match) {
+      const count = parseInt(match[1]);
+      const baseMove = move.slice(0, -1);
+      return [...acc, ...Array(count).fill(baseMove)];
+    }
+    return [...acc, move];
+  }, []);
+
+  console.log(movesArray);
+
+  // movesArray配列に小文字の「u」が含まれている場合、要素を二つに分割して「U」と「Eprime」に変換
+  // movesArray配列に小文字の「uprime」が含まれている場合、要素を二つに分割して「Uprime」と「E」に変換
+  // movesArray配列に小文字の「l」が含まれている場合、要素を二つに分割して「L」と「M」に変換
+  // movesArray配列に小文字の「lprime」が含まれている場合、要素を二つに分割して「Lprime」と「Mprime」に変換
+  // movesArray配列に小文字の「f」が含まれている場合、要素を二つに分割して「F」と「S」に変換
+  // movesArray配列に小文字の「fprime」が含まれている場合、要素を二つに分割して「Fprime」と「Sprime」に変換
+  // movesArray配列に小文字の「r」が含まれている場合、要素を二つに分割して「R」と「Mprime」に変換
+  // movesArray配列に小文字の「rprime」が含まれている場合、要素を二つに分割して「Rprime」と「M」に変換
+  // movesArray配列に小文字の「b」が含まれている場合、要素を二つに分割して「B」と「Sprime」に変換
+  // movesArray配列に小文字の「bprime」が含まれている場合、要素を二つに分割して「Bprime」と「S」に変換
+  // movesArray配列に小文字の「d」が含まれている場合、要素を二つに分割して「D」と「E」に変換
+  // movesArray配列に小文字の「dprime」が含まれている場合、要素を二つに分割して「Dprime」と「Eprime」に変換
+  movesArray = movesArray.reduce((acc, move) => {
+    if (move === "u") {
+      return [...acc, "U", "Eprime"];
+    } else if (move === "uprime") {
+      return [...acc, "Uprime", "E"];
+    } else if (move === "l") {
+      return [...acc, "L", "M"];
+    } else if (move === "lprime") {
+      return [...acc, "Lprime", "Mprime"];
+    } else if (move === "f") {
+      return [...acc, "F", "S"];
+    } else if (move === "fprime") {
+      return [...acc, "Fprime", "Sprime"];
+    } else if (move === "r") {
+      return [...acc, "R", "Mprime"];
+    } else if (move === "rprime") {
+      return [...acc, "Rprime", "M"];
+    } else if (move === "b") {
+      return [...acc, "B", "Sprime"];
+    } else if (move === "bprime") {
+      return [...acc, "Bprime", "S"];
+    } else if (move === "d") {
+      return [...acc, "D", "E"];
+    } else if (move === "dprime") {
+      return [...acc, "Dprime", "Eprime"];
+    } else {
+      return [...acc, move];
+    }
+  }, []);
+
+  console.log("rubiks-cube-solver の解答手順（parse）:", movesArray);
+
   for (let move of movesArray) {
     await doAlgorithm(move);
   }
@@ -243,12 +515,10 @@ async function solveCubeRubiks() {
   alert("rubiks-cube-solver による解法が完了しました！");
 }
 
-/**
- * ------------------------------------------------------
- * solveCube() - 独自LBL（Layer-by-Layer）解法
- *   - U面=白, D面=黄, R面=赤, L面=オレンジ, F面=緑, B面=青 の想定で実装
- * ------------------------------------------------------
- */
+/* -------------------------------------------------------------------
+   独自LBL（Layer-by-Layer）解法
+   ------------------------------------------------------------------- */
+
 async function solveCube() {
   if (isAnimating) return;
 
@@ -316,7 +586,6 @@ async function solveCube() {
 /**
  * キューブ状態を読み取り、内部表現として返す
  * - U=白, D=黄, R=赤, L=オレンジ, F=緑, B=青
- * - materialインデックス: 0=R(赤),1=L(オレンジ),2=U(白),3=D(黄),4=F(緑),5=B(青)
  */
 function getCubeState() {
   const cubeInfo = {
@@ -359,7 +628,7 @@ function getCubeState() {
   return cubeInfo;
 }
 
-/** ヘックス色を "white","yellow","red","blue","green","orange" に変換 */
+/** ヘックス色を "white","yellow","red","blue","green","orange","black" に変換 */
 function hexToColorName(hex) {
   switch (hex) {
     case 0xffffff: return "white";
@@ -368,8 +637,8 @@ function hexToColorName(hex) {
     case 0x0000ff: return "blue";
     case 0x00ff00: return "green";
     case 0xff8000: return "orange";
+    default:       return "black";
   }
-  return "unknown";
 }
 
 /**
@@ -407,7 +676,7 @@ async function doAlgorithm(alg) {
   const moves = alg.trim().split(/\s+/);
   for (let m of moves) {
     executeMove(m);
-    await waitMs(100);
+    await waitMs(1000);
   }
 }
 
@@ -458,7 +727,6 @@ function findEdgeByColors(edgeArray, twoColors) {
 }
 
 function isWhiteEdgeCorrectU(edgeData) {
-  // up面にいて、face="U"がwhiteならOK
   if (edgeData.pos[1] === 1) {
     let whiteFace = edgeData.colors.find(c => c.colorName === "white");
     if (whiteFace && whiteFace.face === "U") {
@@ -470,17 +738,15 @@ function isWhiteEdgeCorrectU(edgeData) {
 
 async function moveWhiteEdgeToDown(edgeData, solutionMoves) {
   let [px, py, pz] = edgeData.pos;
-  if (py === -1) return; // すでにdown面
+  if (py === -1) return;
 
-  // 一例: 上面にあれば F2 など、適当な手で下げる
   if (py === 1) {
     await doAlgorithm("F2");
     solutionMoves.push("F2");
   } else if (py === 0) {
-    // 中段にある場合も何か適当に下げる
     if (pz === 1) {
-      await doAlgorithm("F'");
-      solutionMoves.push("F'");
+      await doAlgorithm("Fprime");
+      solutionMoves.push("Fprime");
     } else if (pz === -1) {
       await doAlgorithm("B");
       solutionMoves.push("B");
@@ -488,37 +754,32 @@ async function moveWhiteEdgeToDown(edgeData, solutionMoves) {
       await doAlgorithm("R");
       solutionMoves.push("R");
     } else if (px === -1) {
-      await doAlgorithm("L'");
-      solutionMoves.push("L'");
+      await doAlgorithm("Lprime");
+      solutionMoves.push("Lprime");
     }
   }
 }
 
 async function liftWhiteEdgeFromDown(twoColors, solutionMoves) {
   let color2 = twoColors.find(c => c !== "white");
-  // color2 = "red"|"green"|"orange"|"blue"
-  // faceにマップ
   let faceMap = { red:"R", green:"F", orange:"L", blue:"B" };
   let face = faceMap[color2] || "F";
 
-  // 4回まで回して位置合わせ
+  let cornerToPos = {
+    R: [1, -1, 0],
+    F: [0, -1, 1],
+    B: [0, -1, -1],
+    L: [-1, -1, 0],
+  };
+
   for (let i=0; i<4; i++) {
     let st = getCubeState();
-    let edge = findEdgeByColors(st.edges, twoColors);
+    let edge = findEdgeByColors(st.edges, ["white", color2]);
     if (!edge) return;
 
     let [px, py, pz] = edge.pos;
-    // 下で、(faceによって x,zが異なる)
-    let desiredPosMap = {
-      R: [1, -1, 0],
-      F: [0, -1, 1],
-      B: [0, -1, -1],
-      L: [-1, -1, 0],
-    };
-    let desired = desiredPosMap[face];
-
+    let desired = cornerToPos[face];
     if (px === desired[0] && py === desired[1] && pz === desired[2]) {
-      // 上げる (face2)
       await doAlgorithm(face + "2");
       solutionMoves.push(face + "2");
       return;
@@ -533,7 +794,6 @@ async function liftWhiteEdgeFromDown(twoColors, solutionMoves) {
  * (2) 白面 + 第一層コーナー
  */
 async function solveWhiteCorners(solutionMoves) {
-  // 白コーナー: (white + [green/red/blue/orange])
   const cornerColorsList = [
     ["white","green","red"],
     ["white","red","blue"],
@@ -584,16 +844,12 @@ function isWhiteCornerCorrectU(corner) {
 async function moveWhiteCornerToDown(cornerData, solutionMoves) {
   let [px, py] = cornerData.pos;
   if (py === -1) return;
-  // 例: "R' D R" などで下げる
-  await doAlgorithm("R' D R");
-  solutionMoves.push("R'","D","R");
+  await doAlgorithm("Rprime D R");
+  solutionMoves.push("Rprime","D","R");
 }
 
 async function liftWhiteCornerFromDown(threeColors, solutionMoves) {
-  // (white, green, red)などからターゲットコーナーを決める
-  // front=green, right=red, back=blue, left=orange
   let pair = threeColors.filter(c => c!=="white").sort().join(",");
-  // pair例: "green,red", "blue,orange", ...
   let cornerPosMap = {
     "green,red": "FR",
     "red,blue": "RB",
@@ -610,10 +866,10 @@ async function liftWhiteCornerFromDown(threeColors, solutionMoves) {
     LF: [-1, -1, 1],
   };
   let cornerToAlg = {
-    FR: "R' D' R",
-    RB: "B' D' B",
-    BL: "L' D' L",
-    LF: "F' D' F",
+    FR: "Rprime Dprime R",
+    RB: "Bprime Dprime B",
+    BL: "Lprime Dprime L",
+    LF: "Fprime Dprime F",
   };
   let desired = cornerToPos[targetCorner];
   let alg = cornerToAlg[targetCorner];
@@ -636,7 +892,7 @@ async function liftWhiteCornerFromDown(threeColors, solutionMoves) {
 }
 
 /**
- * (3) 中段エッジ (赤/緑/青/オレンジ)
+ * (3) 中段エッジ
  */
 async function solveMiddleEdges(solutionMoves) {
   const middleEdges = [
@@ -657,7 +913,6 @@ async function placeMiddleEdge(twoColors, solutionMoves) {
     let edge = findEdgeByColors(st.edges, twoColors);
     if (!edge) return;
 
-    // すでに中段かつ白/黄含まないならOK
     if (isMiddleEdgeCorrect(edge)) return;
 
     await moveEdgeToDown(edge, solutionMoves);
@@ -684,35 +939,31 @@ function isMiddleEdgeCorrect(edge) {
 async function moveEdgeToDown(edge, solutionMoves) {
   let [px, py] = edge.pos;
   if (py === -1) return;
-  // 簡易で "R' D' R" など
-  await doAlgorithm("R' D' R");
-  solutionMoves.push("R'","D'","R");
+  await doAlgorithm("Rprime Dprime R");
+  solutionMoves.push("Rprime","Dprime","R");
 }
 
 async function insertEdgeToMiddle(twoColors, solutionMoves) {
-  // 簡易手順: "U R U' R' U' F' U F"
-  await doAlgorithm("U R U' R' U' F' U F");
-  solutionMoves.push("U","R","U'","R'","U'","F'","U","F");
+  await doAlgorithm("U R Uprime Rprime Uprime Fprime U F");
+  solutionMoves.push("U","R","Uprime","Rprime","Uprime","Fprime","U","F");
 }
 
 /**
  * (4) 上面(黄)クロス
  */
 async function solveYellowCross(solutionMoves) {
-  // F R U R' U' F' 繰り返し
   for (let i=0; i<8; i++) {
     let st = getCubeState();
     if (yellowCrossDone(st)) {
       console.log("[Step4] 黄クロス完成");
       return;
     }
-    await doAlgorithm("F R U R' U' F'");
-    solutionMoves.push("F","R","U","R'","U'","F'");
+    await doAlgorithm("F R U Rprime Uprime Fprime");
+    solutionMoves.push("F","R","U","Rprime","Uprime","Fprime");
   }
 }
 
 function yellowCrossDone(st) {
-  // D面(y=-1)エッジ4本が "yellow" face="D"
   let count = 0;
   for (let e of st.edges) {
     if (e.pos[1] === -1) {
@@ -725,23 +976,21 @@ function yellowCrossDone(st) {
 }
 
 /**
- * (5) 上面コーナー向き(OLL)
+ * (5) OLL
  */
 async function solveOLL(solutionMoves) {
-  // コーナー4つ全ての黄面がD面を向くまで
   for (let i=0; i<12; i++) {
     let st = getCubeState();
     if (allLastLayerOriented(st)) {
       console.log("[Step5] OLL完了");
       return;
     }
-    await doAlgorithm("R U R' U R U2 R'");
-    solutionMoves.push("R","U","R'","U","R","U2","R'");
+    await doAlgorithm("R U Rprime U R U2 Rprime");
+    solutionMoves.push("R","U","Rprime","U","R","U2","Rprime");
   }
 }
 
 function allLastLayerOriented(st) {
-  // D面(y=-1)コーナーのface="D"がyellow
   let count = 0;
   for (let c of st.corners) {
     if (c.pos[1] === -1) {
@@ -754,15 +1003,15 @@ function allLastLayerOriented(st) {
 }
 
 /**
- * (6) PLL(最終層 コーナー&エッジ)
+ * (6) PLL
  */
 async function solvePLL(solutionMoves) {
   // コーナーPLL
   for (let i=0; i<6; i++) {
     let st = getCubeState();
     if (lastLayerCornersOk(st)) break;
-    await doAlgorithm("x R' U R' D2 R U' R' D2 R2 x'");
-    solutionMoves.push("x","R'","U","R'","D2","R","U'","R'","D2","R2","x'");
+    await doAlgorithm("x Rprime U Rprime D2 R Uprime Rprime D2 R2 xprime");
+    solutionMoves.push("x","Rprime","U","Rprime","D2","R","Uprime","Rprime","D2","R2","xprime");
   }
 
   // エッジPLL
@@ -772,13 +1021,12 @@ async function solvePLL(solutionMoves) {
       console.log("[Step6] PLL完了");
       return;
     }
-    await doAlgorithm("R2 U R U R' U' R' U' R' U R'");
-    solutionMoves.push("R2","U","R","U","R'","U'","R'","U'","R'","U","R'");
+    await doAlgorithm("R2 U R U Rprime Uprime Rprime Uprime Rprime U Rprime");
+    solutionMoves.push("R2","U","R","U","Rprime","Uprime","Rprime","Uprime","Rprime","U","Rprime");
   }
 }
 
 function lastLayerCornersOk(st) {
-  // D面にコーナー4つ
   let match = 0;
   for (let c of st.corners) {
     if (c.pos[1] === -1) {
@@ -789,7 +1037,6 @@ function lastLayerCornersOk(st) {
 }
 
 function lastLayerEdgesOk(st) {
-  // D面にエッジ4つ
   let match = 0;
   for (let e of st.edges) {
     if (e.pos[1] === -1) {
@@ -799,41 +1046,47 @@ function lastLayerEdgesOk(st) {
   return match === 4;
 }
 
+/* -------------------------------------------------------------------
+   回転系 (レイヤー回転、全体回転など)
+   ------------------------------------------------------------------- */
+
 /**
- * レイヤー回転 / 全体回転など
+ * 指定の手を１手実行
  */
 function executeMove(moveType) {
   if (isAnimating) return;
 
+  console.log("Move:", moveType);
+
   const moves = {
-    U:   () => rotateLayer({ position: new THREE.Vector3(0, 1, 0) }, "y", 1),
-    "U'":() => rotateLayer({ position: new THREE.Vector3(0, 1, 0) }, "y", -1),
-    D:   () => rotateLayer({ position: new THREE.Vector3(0, -1, 0) }, "y", -1),
-    "D'":() => rotateLayer({ position: new THREE.Vector3(0, -1, 0) }, "y", 1),
-    R:   () => rotateLayer({ position: new THREE.Vector3(1, 0, 0) }, "x", 1),
-    "R'":() => rotateLayer({ position: new THREE.Vector3(1, 0, 0) }, "x", -1),
-    L:   () => rotateLayer({ position: new THREE.Vector3(-1, 0, 0) }, "x", -1),
-    "L'":() => rotateLayer({ position: new THREE.Vector3(-1, 0, 0) }, "x", 1),
-    F:   () => rotateLayer({ position: new THREE.Vector3(0, 0, 1) }, "z", 1),
-    "F'":() => rotateLayer({ position: new THREE.Vector3(0, 0, 1) }, "z", -1),
-    B:   () => rotateLayer({ position: new THREE.Vector3(0, 0, -1) }, "z", -1),
-    "B'":() => rotateLayer({ position: new THREE.Vector3(0, 0, -1) }, "z", 1),
+    U:   () => rotateLayer({ position: new THREE.Vector3(0, 1, 0) }, "y", -1),
+    "Uprime":() => rotateLayer({ position: new THREE.Vector3(0, 1, 0) }, "y", 1),
+    D:   () => rotateLayer({ position: new THREE.Vector3(0, -1, 0) }, "y", 1),
+    "Dprime":() => rotateLayer({ position: new THREE.Vector3(0, -1, 0) }, "y", -1),
+    R:   () => rotateLayer({ position: new THREE.Vector3(1, 0, 0) }, "x", -1),
+    "Rprime":() => rotateLayer({ position: new THREE.Vector3(1, 0, 0) }, "x", 1),
+    L:   () => rotateLayer({ position: new THREE.Vector3(-1, 0, 0) }, "x", 1),
+    "Lprime":() => rotateLayer({ position: new THREE.Vector3(-1, 0, 0) }, "x", -1),
+    F:   () => rotateLayer({ position: new THREE.Vector3(0, 0, 1) }, "z", -1),
+    "Fprime":() => rotateLayer({ position: new THREE.Vector3(0, 0, 1) }, "z", 1),
+    B:   () => rotateLayer({ position: new THREE.Vector3(0, 0, -1) }, "z", 1),
+    "Bprime":() => rotateLayer({ position: new THREE.Vector3(0, 0, -1) }, "z", -1),
 
     // 中層
-    M:   () => rotateLayer({ position: new THREE.Vector3(0, 0, 0) }, "x", -1),
-    "M'":() => rotateLayer({ position: new THREE.Vector3(0, 0, 0) }, "x", 1),
-    E:   () => rotateLayer({ position: new THREE.Vector3(0, 0, 0) }, "y", -1),
-    "E'":() => rotateLayer({ position: new THREE.Vector3(0, 0, 0) }, "y", 1),
-    S:   () => rotateLayer({ position: new THREE.Vector3(0, 0, 0) }, "z", 1),
-    "S'":() => rotateLayer({ position: new THREE.Vector3(0, 0, 0) }, "z", -1),
+    M:   () => rotateLayer({ position: new THREE.Vector3(0, 0, 0) }, "x", 1),
+    "Mprime":() => rotateLayer({ position: new THREE.Vector3(0, 0, 0) }, "x", -1),
+    E:   () => rotateLayer({ position: new THREE.Vector3(0, 0, 0) }, "y", 1),
+    "Eprime":() => rotateLayer({ position: new THREE.Vector3(0, 0, 0) }, "y", -1),
+    S:   () => rotateLayer({ position: new THREE.Vector3(0, 0, 0) }, "z", -1),
+    "Sprime":() => rotateLayer({ position: new THREE.Vector3(0, 0, 0) }, "z", 1),
 
     // 全体
-    x:   () => rotateCube("x", 1),
-    "x'":() => rotateCube("x", -1),
-    y:   () => rotateCube("y", 1),
-    "y'":() => rotateCube("y", -1),
-    z:   () => rotateCube("z", 1),
-    "z'":() => rotateCube("z", -1),
+    x:   () => rotateCube("x", -1),
+    "xprime":() => rotateCube("x", 1),
+    y:   () => rotateCube("y", -1),
+    "yprime":() => rotateCube("y", 1),
+    z:   () => rotateCube("z", -1),
+    "zprime":() => rotateCube("z", 1),
   };
 
   if (moves[moveType]) {
@@ -897,38 +1150,44 @@ function rotateLayer(dummyPiece, axis, direction) {
  * キューブ全体回転
  */
 function rotateCube(axis, direction) {
-  if (isAnimating) return;
-  isAnimating = true;
-
-  const rotationMatrix = new THREE.Matrix4();
-  const rotationAngle = (Math.PI / 2) * direction;
-  switch (axis) {
-    case "x": rotationMatrix.makeRotationX(rotationAngle); break;
-    case "y": rotationMatrix.makeRotationY(rotationAngle); break;
-    case "z": rotationMatrix.makeRotationZ(rotationAngle); break;
+  if (isAnimating) {
+    // もし何か回転中なら待たずにすぐ終わらせる
+    return new Promise(resolve => resolve());
   }
 
-  const cubeGroup = new THREE.Group();
-  cubePieces.forEach((p) => {
-    scene.remove(p);
-    cubeGroup.add(p);
-  });
-  scene.add(cubeGroup);
+  return new Promise((resolve) => {
+    isAnimating = true;
+    const rotationMatrix = new THREE.Matrix4();
+    const rotationAngle = (Math.PI / 2) * direction;
+    switch (axis) {
+      case "x": rotationMatrix.makeRotationX(rotationAngle); break;
+      case "y": rotationMatrix.makeRotationY(rotationAngle); break;
+      case "z": rotationMatrix.makeRotationZ(rotationAngle); break;
+    }
 
-  gsap.to(cubeGroup.rotation, {
-    [axis]: cubeGroup.rotation[axis] + rotationAngle,
-    duration: 0.3, ease: "power1.inOut",
-    onComplete: () => {
-      cubePieces.forEach((p) => {
-        cubeGroup.remove(p);
-        scene.add(p);
-        p.position.applyMatrix4(rotationMatrix);
-        p.updateMatrix();
-        rotateColors(p.material, axis, direction);
-      });
-      scene.remove(cubeGroup);
-      isAnimating = false;
-    },
+    const cubeGroup = new THREE.Group();
+    cubePieces.forEach((p) => {
+      scene.remove(p);
+      cubeGroup.add(p);
+    });
+    scene.add(cubeGroup);
+
+    gsap.to(cubeGroup.rotation, {
+      [axis]: cubeGroup.rotation[axis] + rotationAngle,
+      duration: 0.3, ease: "power1.inOut",
+      onComplete: () => {
+        cubePieces.forEach((p) => {
+          cubeGroup.remove(p);
+          scene.add(p);
+          p.position.applyMatrix4(rotationMatrix);
+          p.updateMatrix();
+          rotateColors(p.material, axis, direction);
+        });
+        scene.remove(cubeGroup);
+        isAnimating = false;
+        resolve();
+      },
+    });
   });
 }
 
@@ -940,10 +1199,8 @@ function rotateColors(materials, axis, direction) {
   if (!materials || !Array.isArray(materials)) return;
   const temp = materials.map((m) => m.color.clone());
 
-  // 例: rotate around x軸
   if (axis === "x") {
     if (direction === 1) {
-      //  U->B, F->U, D->F, B->D
       materials[2].color.copy(temp[5]);
       materials[4].color.copy(temp[2]);
       materials[3].color.copy(temp[4]);
@@ -961,7 +1218,6 @@ function rotateColors(materials, axis, direction) {
   }
   else if (axis === "y") {
     if (direction === 1) {
-      // R->F, B->R, L->B, F->L
       materials[0].color.copy(temp[4]);
       materials[5].color.copy(temp[0]);
       materials[1].color.copy(temp[5]);
@@ -979,7 +1235,6 @@ function rotateColors(materials, axis, direction) {
   }
   else if (axis === "z") {
     if (direction === 1) {
-      // L->U, D->L, R->D, U->R
       materials[1].color.copy(temp[2]);
       materials[3].color.copy(temp[1]);
       materials[0].color.copy(temp[3]);
@@ -1002,15 +1257,30 @@ function rotateColors(materials, axis, direction) {
  * 「front(緑) → right(赤) → up(白) → down(黄) → left(オレンジ) → back(青)」の順に各9文字
  */
 function buildCubeStateString() {
+  // キューブの状態を取得
   let cubeInfo = getCubeState();
-  let fStr = getFaceString(cubeInfo, "F");
-  let rStr = getFaceString(cubeInfo, "R");
-  let uStr = getFaceString(cubeInfo, "U");
-  let dStr = getFaceString(cubeInfo, "D");
-  let lStr = getFaceString(cubeInfo, "L");
-  let bStr = getFaceString(cubeInfo, "B");
 
-  return fStr + rStr + uStr + dStr + lStr + bStr;
+  // 各面を取得
+  let fStr = getFaceString(cubeInfo, "F");  // Front面
+  let rStr = getFaceString(cubeInfo, "R");  // Right面
+  let uStr = getFaceString(cubeInfo, "U");  // Up面
+  let dStr = getFaceString(cubeInfo, "D");  // Down面
+  let lStr = getFaceString(cubeInfo, "L");  // Left面
+  let bStr = getFaceString(cubeInfo, "B");  // Back面
+
+  // 各面のデバッグ出力
+  console.log("Front面 (F):", fStr);
+  console.log("Right面 (R):", rStr);
+  console.log("Up面 (U):", uStr);
+  console.log("Down面 (D):", dStr);
+  console.log("Left面 (L):", lStr);
+  console.log("Back面 (B):", bStr);
+
+  // 最終的な54文字列
+  let fullState = fStr + rStr + uStr + dStr + lStr + bStr;
+  console.log("生成されたキューブ状態 (54文字):", fullState);
+
+  return fullState;
 }
 
 const faceIndicesMap = {
@@ -1078,7 +1348,6 @@ function findPieceByPosition(cubeInfo, px, py, pz) {
 /**
  * "white"|"yellow"|"red"|"green"|"orange"|"blue" を
  *   rubiks-cube-solver の文字 (f,r,u,d,l,b) にマッピング
- * front=green=>f, right=red=>r, up=white=>u, down=yellow=>d, left=orange=>l, back=blue=>b
  */
 function colorNameToSolverChar(colorName) {
   switch (colorName) {
@@ -1130,7 +1399,9 @@ document.addEventListener("DOMContentLoaded", () => {
   // サイドバー開閉
   const toggleMenu = document.getElementById("toggleMenu");
   const controlPanel = document.getElementById("controlPanel");
+  // サイドバー開閉
   toggleMenu.addEventListener("click", () => {
     controlPanel.classList.toggle("closed");
+    updateRendererSize(); // サイドバーの状態変更後にキャンバスサイズを更新
   });
 });
