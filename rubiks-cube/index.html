@@ -18,27 +18,27 @@
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
-  <!-- ヘッダー（固定） -->
-  <header class="main-header">
+  <!-- ヘッダー（可変高さ / 固定） -->
+  <header class="main-header" id="mainHeader">
     <div class="header-left">
       <button id="toggleMenu" class="toggle-button">&#9776;</button>
       <h1>3D Rubik's Cube</h1>
     </div>
     <div class="header-right">
-      <!-- ★ ここをプルダウン＋解法ボタンに変更 ★ -->
       <select id="solveMethod">
-        <option value="o1">独自LBL(o1)</option>
-        <option value="rubiks">rubiks-cube-solver</option>
+        <option value="rubiks_cube_solver">rubiks-cube-solver</option>
+        <!-- 独自解法(o1) は solveCube_o1 関数でスタブ化 -->
+        <option value="solveCube_o1">独自解法(o1)</option>
       </select>
-      <button id="solveButton">解法を表示</button>
-      <!-- ★ ここまで修正 ★ -->
+      <button id="solveButton">解法を実行</button>
 
       <button id="scrambleButton">スクランブル</button>
       <button id="resetButton">リセット</button>
+      <button id="parseCubePieces">状態を表示</button>
     </div>
   </header>
 
-  <!-- サイドバー（固定・スクロール可） -->
+  <!-- サイドバー（可変高さのヘッダー真下から固定・スクロール可） -->
   <nav class="control-panel closed" id="controlPanel">
     <div class="panel-content">
       <div class="controls">
@@ -79,7 +79,7 @@
     </div>
   </nav>
 
-  <!-- メイン表示領域 -->
+  <!-- メイン表示領域(可変高さのヘッダーの直下から) -->
   <div class="cube-view">
     <canvas id="cubeCanvas"></canvas>
   </div>

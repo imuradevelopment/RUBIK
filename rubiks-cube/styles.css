@@ -1,204 +1,217 @@
+:root {
+  /* JS で動的に上書きされる（ヘッダーの実際の高さ） */
+  --header-height: 60px;
+}
+
 /* リセット */
 * {
-    box-sizing: border-box;
-    margin: 0;
-    padding: 0;
-  }
-  
-  /* 全体 */
-  html, body {
-    width: 100%;
-    height: 100%;
-    background-color: #000;
-    color: #fff;
-    font-family: Arial, sans-serif;
-    overflow: hidden; /* 全画面を使う */
-  }
-  
-  /* ヘッダー（固定） */
-  .main-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    position: fixed;
-    top: 0;
-    left: 0;
-    right: 0;
-    background-color: #111;
-    padding: 0 20px;
-    height: 60px;
-    border-bottom: 1px solid #333;
-    z-index: 10;
-  }
-  
-  .header-left {
-    display: flex;
-    align-items: center;
-    gap: 20px;
-  }
-  
-  .header-left h1 {
-    font-size: 18px;
-    margin: 0;
-  }
-  
-  .header-right {
-    display: flex;
-    gap: 10px;
-  }
-  
-  /* トグルボタン */
-  .toggle-button {
-    font-size: 20px;
-    background: none;
-    border: none;
-    color: #eee;
-    cursor: pointer;
-    padding: 5px 10px;
-  }
-  .toggle-button:hover {
-    background-color: #333;
-  }
-  
-  /* ボタン（スクランブル・解法など） */
-  .header-right button {
-    background-color: #007BFF;
-    border: none;
-    border-radius: 4px;
-    color: #fff;
-    cursor: pointer;
-    padding: 8px 16px;
-    font-size: 12px;
-    transition: background-color 0.2s ease;
-  }
-  
-  .header-right button:hover {
-    background-color: #0056b3;
-  }
-  
-  /* サイドバー */
-  .control-panel {
-    position: fixed;
-    top: 60px; /* ヘッダー下 */
-    left: 0;
-    bottom: 0;
-    width: 300px;
-    background-color: rgba(0, 0, 0, 0.85);
-    border-right: 1px solid #333;
-    overflow-y: auto; /* スクロール可能 */
-    transform: translateX(0);
-    transition: transform 0.3s ease;
-    z-index: 9;
-  }
-  
-  .control-panel.closed {
-    transform: translateX(-100%);
-  }
-  
-  .panel-content {
-    padding: 15px;
-  }
-  
-  .controls {
-    display: flex;
-    flex-direction: column;
-    gap: 15px;
-  }
-  
-  .control-group {
-    background-color: rgba(255, 255, 255, 0.1);
-    padding: 12px;
-    border-radius: 5px;
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
-    gap: 8px;
-  }
-  
-  .control-group h3 {
-    margin-bottom: 10px;
-    font-size: 14px;
-    color: #aaa;
-    grid-column: 1 / -1;
-  }
-  
-  /* 共通ボタン */
-  button {
-    background-color: #007BFF;
-    color: white;
-    border: none;
-    border-radius: 4px;
-    cursor: pointer;
-    font-size: 11px;
-    padding: 8px;
-    transition: all 0.2s ease;
-    height: 36px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    line-height: 1.2;
-    text-align: center;
-    word-break: keep-all;
-  }
-  button:hover {
-    background-color: #0056b3;
-    transform: scale(1.05);
-  }
-  button:active {
-    transform: scale(0.95);
-  }
-  
-  /* キューブ表示領域 */
-  .cube-view {
-    position: absolute;
-    top: 60px;     /* ヘッダー下 */
-    left: 300px;   /* サイドバー分 */
-    right: 0;
-    bottom: 0;
-    overflow: hidden;
-    background: #000;
-    transition: left 0.3s ease; /* スムーズな移動 */
-  }
-  
-  
-  /* canvas を全域使う */
-  canvas {
-    width: 100%;
-    height: 100%;
-    display: block;
-  }
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
 
-  /* スマホ用スタイル */
+/* 全体 */
+html, body {
+  width: 100%;
+  height: 100%;
+  background-color: #000;
+  color: #fff;
+  font-family: Arial, sans-serif;
+  overflow: hidden; /* 全画面を使う */
+}
+
+/* ヘッダー（可変高さ / 固定） */
+.main-header {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+
+  /* 背景色・境界線 */
+  background-color: #111;
+  border-bottom: 1px solid #333;
+
+  /* 高さ可変にして、ボタンが折り返せるように */
+  display: flex;
+  flex-wrap: wrap;      /* 横幅が足りない場合に折り返し */
+  gap: 10px;            /* ボタン類との隙間 */
+  padding: 10px 20px;   /* 中の余白 */
+  min-height: 60px;     /* 最低でも60px */
+
+  z-index: 10; /* 最前面に固定 */
+}
+
+/* ヘッダー左側 */
+.header-left {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+}
+
+.header-left h1 {
+  font-size: 18px;
+  margin: 0;
+}
+
+/* ヘッダー右側（ボタンやselect） */
+.header-right {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap; /* 狭い時に折り返す */
+  align-items: center;
+}
+
+/* トグルボタン */
+.toggle-button {
+  font-size: 20px;
+  background: none;
+  border: none;
+  color: #eee;
+  cursor: pointer;
+  padding: 5px 10px;
+}
+.toggle-button:hover {
+  background-color: #333;
+}
+
+/* ボタン（スクランブル・解法など） */
+.header-right button {
+  background-color: #007BFF;
+  border: none;
+  border-radius: 4px;
+  color: #fff;
+  cursor: pointer;
+  padding: 8px 16px;
+  font-size: 12px;
+  transition: background-color 0.2s ease;
+}
+
+.header-right button:hover {
+  background-color: #0056b3;
+}
+
+/* サイドバー(ヘッダーの直下から縦固定) */
+.control-panel {
+  position: fixed;
+  top: var(--header-height); /* ヘッダーの高さ分だけ下 */
+  left: 0;
+  bottom: 0;
+  width: 300px;
+
+  background-color: rgba(0, 0, 0, 0.85); /* 透過黒 */
+  border-right: 1px solid #333;
+  overflow-y: auto; /* スクロール可能 */
+  transform: translateX(0);
+  transition: transform 0.3s ease;
+  z-index: 9;
+}
+
+.control-panel.closed {
+  transform: translateX(-100%);
+}
+
+.panel-content {
+  padding: 15px;
+}
+
+.controls {
+  display: flex;
+  flex-direction: column;
+  gap: 15px;
+}
+
+.control-group {
+  background-color: rgba(255, 255, 255, 0.1);
+  padding: 12px;
+  border-radius: 5px;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+  gap: 8px;
+}
+
+.control-group h3 {
+  margin-bottom: 10px;
+  font-size: 14px;
+  color: #aaa;
+  grid-column: 1 / -1;
+}
+
+/* 共通ボタン */
+button {
+  background-color: #007BFF;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 11px;
+  padding: 8px;
+  transition: all 0.2s ease;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1.2;
+  text-align: center;
+  word-break: keep-all;
+}
+button:hover {
+  background-color: #0056b3;
+  transform: scale(1.05);
+}
+button:active {
+  transform: scale(0.95);
+}
+
+/* キューブ表示領域(ヘッダーの直下から全幅全高) */
+.cube-view {
+  position: absolute;
+  top: var(--header-height); /* ヘッダーの高さ分だけ下から */
+  left: 0;
+  right: 0;
+  bottom: 0;
+  overflow: hidden;
+  background: #000;
+
+  /* キューブの描画を中央寄せするためのFlex配置 */
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+
+/* canvas を表示領域全体に広げる */
+canvas {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+/* スマホ用スタイル */
 @media screen and (max-width: 768px) {
-  /* サイドバーを上部に移動 */
+  /* サイドバーをヘッダーの下からスライド表示 */
   .control-panel {
-    position: fixed;
-    top: 60px;
-    left: 0;
     width: 100%;
+    top: var(--header-height);
     height: auto;
     max-height: 40%;
-    overflow-y: auto;
     border-right: none;
     border-bottom: 1px solid #333;
-    transform: translateY(-100%);
+    transform: translateY(-100%); /* 上下スライド */
     transition: transform 0.3s ease;
   }
   .control-panel.closed {
     transform: translateY(0);
   }
 
-  /* サイドバー開閉ボタンの位置を調整 */
+  /* トグルボタンを少し小さく */
   .toggle-button {
     font-size: 18px;
   }
 
-  /* キューブ表示を下に配置 */
+  /* .cube-view はヘッダーを除いて全画面 */
   .cube-view {
-    position: absolute;
-    top: calc(60px + 40%); /* ヘッダーとサイドバー分 */
+    top: var(--header-height);
     left: 0;
     right: 0;
     bottom: 0;
-    overflow: hidden;
   }
 }
