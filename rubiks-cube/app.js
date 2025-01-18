@@ -8,6 +8,10 @@ let controls;            // OrbitControls
 let cubePieces = [];     // キューブの各ピースを格納
 let isAnimating = false; // アニメーション中フラグ
 
+// ステップ実行用
+let stepMoves = [];      // 1手ずつ実行するためのムーブ列
+let stepIndex = 0;       // 現在のステップ番号
+let stepModeStarted = false; // ステップモードが開始されたか
 /***************************************
  * Three.js 初期化 & 描画関連
  ***************************************/
@@ -148,7 +152,7 @@ function createCube() {
     [1, 1, 1],  [-1, 1, 1],
     [1, -1, 1], [-1, -1, 1],
     [1, 1, -1], [-1, 1, -1],
-    [1, -1, -1],[ -1, -1, -1],
+    [1, -1, -1],[-1, -1, -1],
   ];
   for (const pos of cornerPositions) {
     const mats = Array(6).fill().map(() =>
@@ -438,14 +442,9 @@ function rotateColors(materials, axis, direction) {
   }
 }
 
-/**
- * rubiks-cube-solver での解法（START）
- */
-
-/**
- * キューブを solver 用に正しい向きに整える
- * → solveCubeRubiks から呼ばれる
- */
+/***************************************
+ * rubiks-cube-solver での解法（連続実行）
+ ***************************************/
 async function autoOrientCubeForSolver() {
   const startOrient = getCenterOrientation();
   if (checkOrientationGoal(startOrient)) {
@@ -474,7 +473,6 @@ async function autoOrientCubeForSolver() {
     for (let pm of possibleMoves) {
       let newOrient = rotateOrientation(orient, pm.axis, pm.dir);
       if (checkOrientationGoal(newOrient)) {
-        // 最短経路で回転
         let finalMoves = [...moves, pm.notation];
         for (let fm of finalMoves) {
           await rotateCube(fm[0], fm.includes("prime") ? -1 : 1);
@@ -490,24 +488,14 @@ async function autoOrientCubeForSolver() {
   }
 }
 
-/**
- * solveCubeRubiks で使用
- */
 function checkOrientationGoal(arr) {
-  // arr[0]==="green" && arr[2]==="white" && arr[1]==="red"
   return (arr[0]==="green" && arr[2]==="white" && arr[1]==="red");
 }
 
-/**
- * solveCubeRubiks で使用
- */
 function orientationKey(arr) {
   return arr.join("|");
 }
 
-/**
- * solveCubeRubiks で使用
- */
 function rotateOrientation(arr, axis, dir) {
   const newArr = [...arr];
   if (axis==="x") {
@@ -552,12 +540,8 @@ function rotateOrientation(arr, axis, dir) {
   return newArr;
 }
 
-/**
- * solveCubeRubiks が呼ぶ: キューブのセンターの色配置を取得
- */
 function getCenterOrientation() {
   const centerData = getCubeState().centers;
-  // [F, R, U, D, L, B] の順で結果を詰める想定
   let result = ["","","","","",""];
   for (let c of centerData) {
     let [x,y,z] = c.pos;
@@ -572,9 +556,6 @@ function getCenterOrientation() {
   return result;
 }
 
-/**
- * solveCubeRubiks が呼ぶ: キューブの状態を取得し文字列化
- */
 function buildCubeStateString() {
   const cubeInfo = getCubeState();
   const fStr = getFaceString(cubeInfo, "F");
@@ -586,10 +567,6 @@ function buildCubeStateString() {
   return fStr + rStr + uStr + dStr + lStr + bStr;
 }
 
-/**
- * rubiks-cube-solver でのみ使用
- * → 面(F, R, U, D, L, B)の9つのパネルの色を文字列化
- */
 function getFaceString(cubeInfo, face) {
   const faceIndicesMap = {
     F: [
@@ -642,10 +619,6 @@ function getFaceString(cubeInfo, face) {
   return faceStr;
 }
 
-/**
- * rubiks-cube-solver でのみ使用
- * → 位置(px,py,pz)から該当ピースを検索
- */
 function findPieceByPosition(cubeInfo, px, py, pz) {
   const allPieces = [...cubeInfo.centers, ...cubeInfo.edges, ...cubeInfo.corners];
   return allPieces.find((p) => {
@@ -653,10 +626,6 @@ function findPieceByPosition(cubeInfo, px, py, pz) {
   });
 }
 
-/**
- * rubiks-cube-solver でのみ使用
- * → 色名をソルバーの文字に変換
- */
 function colorNameToSolverChar(colorName) {
   switch (colorName) {
     case "green":  return "f";
@@ -669,10 +638,6 @@ function colorNameToSolverChar(colorName) {
   }
 }
 
-/**
- * rubiks-cube-solver でのみ使用
- * → 現在のキューブ状態を取得（センター・エッジ・コーナー）
- */
 function getCubeState() {
   const cubeInfo = {
     centers: [],
@@ -684,7 +649,6 @@ function getCubeState() {
     const py = Math.round(piece.position.y);
     const pz = Math.round(piece.position.z);
 
-    // マテリアル配列から色名を抽出
     const cArr = piece.material.map((m) => m.color.getHex());
     const colorInfo = [];
     if (cArr[0] !== 0x000000) colorInfo.push({ face: "R", colorName: hexToColorName(cArr[0]) });
@@ -711,9 +675,6 @@ function getCubeState() {
   return cubeInfo;
 }
 
-/**
- * 16進色コード → 色名
- */
 function hexToColorName(hex) {
   switch (hex) {
     case 0xffffff: return "white";
@@ -727,27 +688,116 @@ function hexToColorName(hex) {
 }
 
 /**
- * rubiks-cube-solver: 解法実行
+ * 従来の「rubiks-cube-solver」(自動実行)
  */
 async function solveCubeRubiks() {
   if (isAnimating) return;
   // ソルバー用に向きを自動調整
   await autoOrientCubeForSolver();
 
-  // キューブ状態を文字列に
   let cubeStateString = buildCubeStateString();
   let solveMoves;
 
   try {
-    // rubiks-cube-solverライブラリで解法を取得
     solveMoves = window.rubiksCubeSolver(cubeStateString);
   } catch (e) {
     alert("rubiks-cube-solver の解法に失敗しました。");
     return;
   }
 
+  // "R2" のように末尾数字がある場合の展開、 小文字対応など
+  let movesArray = expandSolverMoves(solveMoves);
+
+  // 順次実行
+  for (let move of movesArray) {
+    await doAlgorithm(move);
+  }
+
+  alert("rubiks-cube-solver による解法が完了しました！");
+}
+
+/**
+ * rubiks-cube-solver(ステップ実行)を開始
+ */
+async function solveCubeRubiksStep() {
+  if (isAnimating) return;
+  // ソルバー用に向きを自動調整
+  await autoOrientCubeForSolver();
+
+  let cubeStateString = buildCubeStateString();
+  let solveMoves;
+
+  try {
+    solveMoves = window.rubiksCubeSolver(cubeStateString);
+  } catch (e) {
+    alert("rubiks-cube-solver(ステップ) の解法に失敗しました。");
+    return;
+  }
+
+  // 配列に展開して、グローバル変数 stepMoves に格納
+  stepMoves = expandSolverMoves(solveMoves);
+  stepIndex = 0;
+  stepModeStarted = true;
+
+  // ボタンを「次の手に進む(残り: xx/yy手)」に更新
+  updateStepButtonLabel();
+  alert("ステップ解法の準備ができました。\nボタンを押すたびに次の手を実行します。");
+}
+
+/**
+ * ステップ実行時に「次の手」へ進む処理
+ */
+async function doNextRubiksStepMove() {
+  if (isAnimating) return; // 回転中は無視
+  if (stepIndex >= stepMoves.length) {
+    // もう手がない → 終了
+    endStepMode();
+    alert("ステップ実行が完了しました！");
+    return;
+  }
+
+  // 1手実行
+  const move = stepMoves[stepIndex];
+  stepIndex++;
+  await doAlgorithm(move);
+
+  if (stepIndex >= stepMoves.length) {
+    endStepMode();
+    alert("ステップ実行が完了しました！");
+  } else {
+    updateStepButtonLabel();
+  }
+}
+
+/**
+ * ステップモード終了処理
+ */
+function endStepMode() {
+  // 元の状態に戻す
+  stepModeStarted = false;
+  stepMoves = [];
+  stepIndex = 0;
+  const solveButton = document.getElementById("solveButton");
+  solveButton.textContent = "解法を実行";
+}
+
+/**
+ * ボタンのラベルを「次の手に進む(残り: xx/yy手)」に更新
+ */
+function updateStepButtonLabel() {
+  const solveButton = document.getElementById("solveButton");
+  const remain = stepMoves.length - stepIndex;
+  const total = stepMoves.length;
+  solveButton.textContent = `次の手に進む (残り: ${remain}/${total}手)`;
+}
+
+/**
+ * rubiks-cube-solverライブラリの出力文字列を展開し、
+ * 1手ずつの配列にまとめるヘルパー
+ */
+function expandSolverMoves(solveMoves) {
   let movesArray = solveMoves.split(/\s+/);
-  // 末尾の数字 (2,3など) を展開
+  // R2など末尾数字を展開
   movesArray = movesArray.reduce((acc, move) => {
     const match = move.match(/(\d+)$/);
     if (match) {
@@ -758,7 +808,7 @@ async function solveCubeRubiks() {
     return [...acc, move];
   }, []);
 
-  // 小文字系 (u, l, f, r, b, dなど) を分解して対応
+  // 小文字(u, l, f, etc)を通常のムーブに展開
   movesArray = movesArray.reduce((acc, move) => {
     if (move === "u") {
       return [...acc, "U", "Eprime"];
@@ -789,17 +839,12 @@ async function solveCubeRubiks() {
     }
   }, []);
 
-  // 最終的なムーブ列を順次実行
-  for (let move of movesArray) {
-    await doAlgorithm(move);
-  }
-
-  alert("rubiks-cube-solver による解法が完了しました！");
+  return movesArray;
 }
 
 /**
  * 指定のアルゴリズム(スペース区切り)を実行
- * → rubiks-cube-solver の最終手順で呼ばれる
+ * → 1手ずつ1秒待機
  */
 async function doAlgorithm(alg) {
   const moves = alg.trim().split(/\s+/);
@@ -817,67 +862,20 @@ function waitMs(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-/**
- * rubiks-cube-solver での解法（END）
- */
-
-/**
+/***************************************
  * solveCube_o1 での解法（START）
  */
-// LLMへの要望：下記にのっとってo1resolver関数の実装をお願いします。
-// アルゴリズムを実装して、下記のムーブの記号をスペースで区切って返す
-// 例：U Uprime D Dprime R Rprime L Lprime F Fprime B Bprimeなど
-// ### 標準の面回転ムーブ
-// | ムーブ名           | 記号     | 説明                                      |
-// |--------------------|----------|-------------------------------------------|
-// | 上面時計回り         | `U`      | **Up**（上面）を時計回りに90度回転               |
-// | 上面反時計回り       | `Uprime` | **Up**（上面）を反時計回りに90度回転             |
-// | 下面時計回り         | `D`      | **Down**（下面）を時計回りに90度回転             |
-// | 下面反時計回り       | `Dprime` | **Down**（下面）を反時計回りに90度回転           |
-// | 右面時計回り         | `R`      | **Right**（右面）を時計回りに90度回転             |
-// | 右面反時計回り       | `Rprime` | **Right**（右面）を反時計回りに90度回転           |
-// | 左面時計回り         | `L`      | **Left**（左面）を時計回りに90度回転             |
-// | 左面反時計回り       | `Lprime` | **Left**（左面）を反時計回りに90度回転           |
-// | 前面時計回り         | `F`      | **Front**（前面）を時計回りに90度回転             |
-// | 前面反時計回り       | `Fprime` | **Front**（前面）を反時計回りに90度回転           |
-// | 背面時計回り         | `B`      | **Back**（背面）を時計回りに90度回転             |
-// | 背面反時計回り       | `Bprime` | **Back**（背面）を反時計回りに90度回転           |
-
-// ### ミドルレイヤームーブ
-
-// | ムーブ名                     | 記号      | 説明                                            |
-// |------------------------------|-----------|-------------------------------------------------|
-// | ミドルレイヤー時計回り         | `M`       | **Middle**（ミドルレイヤー）を時計回りに90度回転               |
-// | ミドルレイヤー反時計回り       | `Mprime`  | **Middle**（ミドルレイヤー）を反時計回りに90度回転             |
-// | 平行レイヤー時計回り           | `E`       | **Equatorial**（平行レイヤー）を時計回りに90度回転               |
-// | 平行レイヤー反時計回り         | `Eprime`  | **Equatorial**（平行レイヤー）を反時計回りに90度回転             |
-// | スタンディングスライス時計回り   | `S`       | **Standing**（スタンディングスライス）を時計回りに90度回転       |
-// | スタンディングスライス反時計回り | `Sprime`  | **Standing**（スタンディングスライス）を反時計回りに90度回転     |
-
-// ### 全体回転ムーブ
-
-// | ムーブ名               | 記号      | 説明                                           |
-// |------------------------|-----------|------------------------------------------------|
-// | x軸時計回り回転           | `x`       | キューブ全体をx軸に沿って時計回りに90度回転           |
-// | x軸反時計回り回転         | `xprime`  | キューブ全体をx軸に沿って反時計回りに90度回転         |
-// | y軸時計回り回転           | `y`       | キューブ全体をy軸に沿って時計回りに90度回転           |
-// | y軸反時計回り回転         | `yprime`  | キューブ全体をy軸に沿って反時計回りに90度回転         |
-// | z軸時計回り回転           | `z`       | キューブ全体をz軸に沿って時計回りに90度回転           |
-// | z軸反時計回り回転         | `zprime`  | キューブ全体をz軸に沿って反時計回りに90度回転         |
 function o1resolver(cubeStateString) {
   alert("まだo1resolver関数は実装されていません。");
 }
 async function solveCube_o1() {
   if (isAnimating) return;
-  // Upが白、Frontが緑、Rightが赤になるように向きを自動調整
   await autoOrientCubeForSolver();
 
-  // キューブ状態を文字列に
   let cubeStateString = buildCubeStateString();
   let solveMoves;
 
   try {
-    // o1resolver関数で解法を取得
     solveMoves = o1resolver(cubeStateString);
   } catch (e) {
     alert("solveCube_o1 の解法に失敗しました。");
@@ -886,7 +884,6 @@ async function solveCube_o1() {
 
   let movesArray = solveMoves.split(/\s+/);
 
-  // 最終的なムーブ列を順次実行
   for (let move of movesArray) {
     await doAlgorithm(move);
   }
@@ -896,6 +893,108 @@ async function solveCube_o1() {
 /**
  * solveCube_o1 での解法（END）
  */
+
+
+/***************************************
+ * 実機キューブのステッカー状態を入力し、
+ * F→R→U→D→L→B の順に 9文字×6面=54文字を
+ * シミュレーターに反映させる機能
+ ***************************************/
+
+/**
+ * (x, y, z) にあるピースを返す補助関数
+ */
+function findPieceByPositionInSimulator(px, py, pz) {
+  return cubePieces.find((p) =>
+    Math.round(p.position.x) === px &&
+    Math.round(p.position.y) === py &&
+    Math.round(p.position.z) === pz
+  );
+}
+
+/**
+ * 54文字 (f=green, r=red, u=white, d=yellow, l=orange, b=blue) を受け取り、
+ * シミュレーターの各ステッカーに色を適用
+ * 
+ * 順序は rubiks-cube-solver と同じ:
+ * F(前)9文字 → R(右)9文字 → U(上)9文字 → D(下)9文字 → L(左)9文字 → B(後)9文字
+ */
+function applyRealCubeState(realCubeState) {
+  // 54文字あるか確認
+  if (realCubeState.length !== 54) {
+    alert("ステッカー状態は54文字で入力してください。");
+    return;
+  }
+
+  const facesOrder = ["F", "R", "U", "D", "L", "B"];
+  const faceIndicesMap = {
+    F: [
+      [-1, 1, 1], [0, 1, 1], [1, 1, 1],
+      [-1, 0, 1], [0, 0, 1], [1, 0, 1],
+      [-1, -1, 1],[0, -1, 1],[1, -1, 1],
+    ],
+    R: [
+      [1, 1, 1], [1, 1, 0], [1, 1, -1],
+      [1, 0, 1], [1, 0, 0], [1, 0, -1],
+      [1, -1, 1],[1, -1, 0],[1, -1, -1],
+    ],
+    U: [
+      [-1, 1, -1], [0, 1, -1], [1, 1, -1],
+      [-1, 1, 0],  [0, 1, 0],  [1, 1, 0],
+      [-1, 1, 1],  [0, 1, 1],  [1, 1, 1],
+    ],
+    D: [
+      [-1, -1, 1],[0, -1, 1],[1, -1, 1],
+      [-1, -1, 0],[0, -1, 0],[1, -1, 0],
+      [-1, -1, -1],[0, -1, -1],[1, -1, -1],
+    ],
+    L: [
+      [-1, 1, -1], [-1, 1, 0], [-1, 1, 1],
+      [-1, 0, -1], [-1, 0, 0], [-1, 0, 1],
+      [-1, -1, -1],[-1, -1, 0],[-1, -1, 1],
+    ],
+    B: [
+      [1, 1, -1], [0, 1, -1], [-1, 1, -1],
+      [1, 0, -1], [0, 0, -1], [-1, 0, -1],
+      [1, -1, -1],[0, -1, -1],[-1, -1, -1],
+    ],
+  };
+
+  // R=0, L=1, U=2, D=3, F=4, B=5
+  const faceIndexMap = { "F":4, "R":0, "U":2, "D":3, "L":1, "B":5 };
+
+  // f=green, r=red, u=white, d=yellow, l=orange, b=blue
+  const colorMap = {
+    "f": 0x00ff00,
+    "r": 0xff0000,
+    "u": 0xffffff,
+    "d": 0xffff00,
+    "l": 0xff8000,
+    "b": 0x0000ff,
+  };
+
+  for (let faceIdx = 0; faceIdx < facesOrder.length; faceIdx++) {
+    const faceLabel = facesOrder[faceIdx];
+    const stickerPositions = faceIndicesMap[faceLabel];
+    const stickerString = realCubeState.slice(faceIdx * 9, faceIdx * 9 + 9);
+
+    for (let i = 0; i < 9; i++) {
+      const colorChar = stickerString[i];
+      const colorHex = colorMap[colorChar] || 0x000000; // 不明なら黒
+
+      const [x, y, z] = stickerPositions[i];
+      const piece = findPieceByPositionInSimulator(x, y, z);
+      if (!piece) continue;
+
+      const fi = faceIndexMap[faceLabel];
+      if (piece.material[fi]) {
+        piece.material[fi].color.setHex(colorHex);
+      }
+    }
+  }
+
+  alert("実機のステッカー状態を反映しました。");
+}
 
 /***************************************
  * イベントリスナー
@@ -912,13 +1011,32 @@ document.addEventListener("DOMContentLoaded", () => {
   document.getElementById("scrambleButton")?.addEventListener("click", scrambleCube);
   document.getElementById("parseCubePieces")?.addEventListener("click", parseCubePieces);
 
-  // 解法ボタン
-  document.getElementById("solveButton")?.addEventListener("click", () => {
-    const method = document.getElementById("solveMethod")?.value;
+  // solveMethod の切り替えでボタン表記リセット
+  const solveMethodSelect = document.getElementById("solveMethod");
+  const solveButton = document.getElementById("solveButton");
+  solveMethodSelect?.addEventListener("change", () => {
+    // モード変更時はボタンやステップ状態を初期化
+    stepModeStarted = false;
+    stepMoves = [];
+    stepIndex = 0;
+    solveButton.textContent = "解法を実行";
+  });
+
+  // 解法ボタン (1) rubiks_cube_solver (2) solveCube_o1 (3) rubiks_cube_solver_step
+  solveButton?.addEventListener("click", async () => {
+    const method = solveMethodSelect?.value;
     if (method === "solveCube_o1") {
       solveCube_o1();
     } else if (method === "rubiks_cube_solver") {
-      solveCubeRubiks();
+      await solveCubeRubiks();
+    } else if (method === "rubiks_cube_solver_step") {
+      if (!stepModeStarted) {
+        // ステップモード未開始なら開始
+        await solveCubeRubiksStep();
+      } else {
+        // ステップモード進行中なら1手進む
+        await doNextRubiksStepMove();
+      }
     } else {
       alert("未実装の解法メソッドです。");
     }
@@ -937,5 +1055,21 @@ document.addEventListener("DOMContentLoaded", () => {
   toggleMenu?.addEventListener("click", () => {
     controlPanel?.classList.toggle("closed");
     updateRendererSize();
+  });
+
+  // 実機状態入力ボタン → 54文字をpromptで受け取り反映
+  document.getElementById("promptRealCubeButton")?.addEventListener("click", () => {
+    const inputValue = prompt(
+      "実機キューブのステッカー状態を、" +
+      "\n(front→right→up→down→left→back) の順で" +
+      "\n各面9文字 (計54文字) をすべて小文字で入力してください。\n" +
+      "f=green, r=red, u=white, d=yellow, l=orange, b=blue"
+    );
+    if (!inputValue) return;
+    if (inputValue.length !== 54) {
+      alert("入力された文字数が54ではありません。");
+      return;
+    }
+    applyRealCubeState(inputValue);
   });
 });
